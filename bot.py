@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 from gtts import gTTS
 import yt_dlp
+from pydub import AudioSegment
 
 # --- ส่วนของ Web Server สำหรับ Watchdog (UptimeRobot) ---
 app = Flask('')
@@ -46,6 +47,12 @@ print(f"DEBUG_START: Converted TARGET_VOICE_CHANNEL_ID = [{TARGET_VOICE_CHANNEL_
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})')
+    try:
+        await bot.tree.sync()
+        print("Slash commands synced successfully.")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+        
     bot.loop.create_task(connect_to_voice())
 
 async def connect_to_voice():
@@ -73,18 +80,39 @@ async def connect_to_voice():
     except Exception as e:
         print(f"VA_EXCEPTION: {e}")
 
+# ฟังก์ชันแปลงเสียง gTTS ให้เป็นเสียงผู้ชาย (ปรับลด Pitch ให้ทุ้มต่ำลง)
+def save_male_tts(text, filename="output.mp3"):
+    tts = gTTS(text=text, lang='th')
+    tts.save(filename)
+    
+    sound = AudioSegment.from_file(filename)
+    new_sample_rate = int(sound.frame_rate * (2.0 ** (-4.5 / 12.0)))
+    male_sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_sample_rate})
+    male_sound = male_sound.set_frame_rate(sound.frame_rate)
+    male_sound.export(filename, format="mp3")
+
 # --- คำสั่งเดิม: /say (TTS) ---
 @bot.tree.command(name="say", description="พิมพ์ข้อความเพื่อให้บอทพูด")
 async def say(interaction: discord.Interaction, text: str):
     voice_client = interaction.guild.voice_client
+    
+    if not voice_client or not voice_client.is_connected():
+        if TARGET_VOICE_CHANNEL_ID:
+            channel = bot.get_channel(TARGET_VOICE_CHANNEL_ID)
+            if channel and isinstance(channel, discord.VoiceChannel):
+                try:
+                    voice_client = await channel.connect(self_deaf=True)
+                except Exception:
+                    pass
+
     if not voice_client or not voice_client.is_connected():
         await interaction.response.send_message("บอทไม่ได้อยู่ในห้องเสียง!", ephemeral=True)
         return
+
     await interaction.response.send_message(f"พูดว่า: `{text}`", ephemeral=True)
     try:
-        tts = gTTS(text=text, lang='th')
         path = "say.mp3"
-        tts.save(path)
+        save_male_tts(text, path)
         while voice_client.is_playing():
             await asyncio.sleep(1)
         voice_client.play(discord.FFmpegPCMAudio(path))
@@ -102,7 +130,6 @@ async def play(interaction: discord.Interaction, url: str):
     await interaction.response.send_message(f"กำลังโหลดเพลงจากลิงก์...", ephemeral=True)
 
     try:
-        # ตั้งค่า yt-dlp เพื่อดึงสตรีมเสียงตรงๆ แบบไม่เปลืองเนื้อที่ดิสก์
         YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
         
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -110,11 +137,9 @@ async def play(interaction: discord.Interaction, url: str):
             url2 = info['url']
             title = info.get('title', 'Unknown Title')
 
-        # ถ้าบอทกำลังเล่นอยูให้รอจนกว่าจะเล่นจบ
         while voice_client.is_playing():
             await asyncio.sleep(1)
 
-        # สตรีมเพลงเข้า Voice Channel ผ่าน FFmpeg
         voice_client.play(discord.FFmpegPCMAudio(url2, options="-vn"))
         await interaction.followup.send(f"🎶 กำลังเล่นเพลง: **{title}**", ephemeral=True)
     except Exception as e:
@@ -144,25 +169,4 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     if after.channel == current_bot_channel and before.channel != current_bot_channel:
         msg = f"อี {member.display_name} เสร่อเข้ามาแล้ว"
     elif before.channel == current_bot_channel and after.channel != current_bot_channel:
-        msg = f"อี {member.display_name} อีช้างลากเย็ดไปไหนละอีควย"
-
-    if msg:
-        try:
-            tts = gTTS(text=msg, lang='th')
-            path = "notify.mp3"
-            tts.save(path)
-            while voice_client.is_playing():
-                await asyncio.sleep(1)
-            voice_client.play(discord.FFmpegPCMAudio(path))
-        except Exception as e:
-            print(f"Notify Error: {e}")
-
-if __name__ == "__main__":
-    keep_alive()
-    if BOT_TOKEN:
-        print("Waiting 15 seconds to avoid Discord Rate Limit...")
-        import time
-        time.sleep(15)
-        bot.run(BOT_TOKEN)
-    else:
-        print("Error: BOT_TOKEN missing!")
+        msg
