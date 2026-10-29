@@ -3,4 +3,3 @@ gtts
 PyNaCl
 flask
 yt-dlp
-pydub
