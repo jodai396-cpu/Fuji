@@ -1,1 +1,35 @@
+name: Run Discord Bot
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install FFmpeg and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg libffi-dev libssl-dev libsodium-dev build-essential python3-dev
+        pip install --upgrade pip
+        pip install discord.py gtts
+        export SODIUM_INSTALL=system
+        pip install --no-binary :all: pynacl
+
+    - name: Run Bot
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        VOICE_CHANNEL_ID: ${{ secrets.VOICE_CHANNEL_ID }}
+      run: |
+        python -u bot.py
