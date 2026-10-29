@@ -1,0 +1,5 @@
+discord.py
+gtts
+PyNaCl
+flask
+yt-dlp
